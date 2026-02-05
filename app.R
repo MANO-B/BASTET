@@ -1,8 +1,6 @@
-install.packages("Cairo")
-install.packages("ggrastr")
-
 library(shiny)
 library(shinyWidgets)
+library(ggrastr)
 library(plyr)
 library(ggplot2)
 library(ggsci)
@@ -90,15 +88,13 @@ nietzsche = read.csv(header = TRUE,
                           encoding='UTF-8-BOM'))$text
 CH_GENE_NatComms =read_tsv("source/driver_discovery_table.tsv", show_col_types = FALSE)$Hugo_Symbol
 
-# Specify the application port
-options(shiny.host = "0.0.0.0")
-options(shiny.port = 3838)
-
 Min_count = 10
 Min_count_F1 = 10
 Penal = 1
 Toler = 10^-14
 GENE_NO_THRESHOLD = 30
+
+DDPS = file.exists("DDPS")
 
 ht_opt$message = FALSE
 options(shiny.maxRequestSize=16*1024^3)
@@ -151,6 +147,7 @@ conflicted::conflicts_prefer(.quiet = T, recipes::update)
 conflicted::conflicts_prefer(.quiet = T, rms::validate)
 conflicted::conflicts_prefer(.quiet = T, dplyr::between)
 conflicted::conflicts_prefer(.quiet = T, dplyr::first)
+conflicted::conflicts_prefer(.quiet = T, dplyr::n_distinct)
 conflicted::conflicts_prefer(.quiet = T, dplyr::last)
 conflicted::conflicts_prefer(.quiet = T, purrr::transpose)
 conflicted::conflicts_prefer(.quiet = T, base::as.data.frame)
@@ -622,7 +619,7 @@ ui <- dashboardPage(skin = "black",
     tags$style(".sidebar {height: calc(100vh - 50px); overflow-y: scroll; scrollbar-width: none;.left-side}, .main-sidebar {padding-top: 30px}"),
     sidebarMenu(style = "white-space: normal;",
       h3("Settings"),
-      menuItem("Input C-CAT files", tabName = "InputC-CATfiles", icon = icon("dashboard")),
+      # menuItem("Input C-CAT files", tabName = "InputC-CATfiles", icon = icon("dashboard")),
       menuItem("Setting", tabName = "Setting", icon = icon("dashboard")),
       menuItem("Analysis", tabName = "Analysis", icon = icon("th")),
       hr(),
@@ -676,10 +673,10 @@ ui <- dashboardPage(skin = "black",
                menuSubItem("DNMT3A mutations with liquid-only muts", tabName = "DNMT3A_odds", icon = icon("angle-right")),
                hr()
       ),
-      hr(),
-      h3("Instruction"),
-      menuItem("About BASTET", tabName = "Instruction", icon = icon("th")),
-      menuItem("Tips", tabName = "Tips", icon = icon("th")),
+      #hr(),
+      #h3("Instruction"),
+      #menuItem("About BASTET", tabName = "Instruction", icon = icon("th")),
+      #menuItem("Tips", tabName = "Tips", icon = icon("th")),
       hr()
     )
   ),
@@ -902,7 +899,7 @@ ui <- dashboardPage(skin = "black",
       ),
       tabItem(tabName = "Inter_panel1-14",
               plotOutput('figure_inter_panel_p', 
-                         height = "2400px",
+                         height = "4000px",
                          width = "4000px"),
               downloadButton("figure_inter_panel_download_p", "Download the figure as a pdf file")
       ),
@@ -1106,12 +1103,6 @@ ui <- dashboardPage(skin = "black",
               hr(),
               DT::dataTableOutput("table_DNMT3A_odds_blood"),
               h6("Table. DNMT3A mutations co-occur with liquid-only mutations in C-CAT FoundationOne Liquid samples.")
-      ),
-      tabItem("Instruction",
-              includeMarkdown("www/README.md")
-      ),
-      tabItem("Tips",
-              includeMarkdown("www/Tips.md")
       )
     )
   )
@@ -2630,7 +2621,7 @@ server <- function(input, output, session) {
           bold_labels() %>% as_gt()
       })
       table_summary <- Data_summary %>% dplyr::select(
-        `Diagnosis`) %>%
+        -`Diagnosis`) %>%
         tbl_summary(
           by = "separation_value",
           statistic = list(all_continuous() ~ c("{N_nonmiss}",
@@ -2726,7 +2717,8 @@ server <- function(input, output, session) {
 
       Data_summary_table = Data_summary
       Data_summary_table$ID = Data_summary_ID
-      output$table_summary_3 = DT::renderDataTable(Data_summary_table,
+      if(!DDPS){
+        output$table_summary_3 = DT::renderDataTable(Data_summary_table,
                                                  server = FALSE,
                                                  filter = 'top', 
                                                  extensions = c('Buttons'), 
@@ -2736,6 +2728,7 @@ server <- function(input, output, session) {
                                                                 scrollCollapse = TRUE,
                                                                 dom="Blfrtip",
                                                                 buttons = c('csv', 'excel', 'copy')))
+      }
       incProgress(1 / 8)
     })
   })
@@ -2831,6 +2824,7 @@ server <- function(input, output, session) {
                             Data_report()$Tumor_Sample_Barcode)
         }
         incProgress(1 / 8)
+        setProgress(detail = "2826")
         Data_survival = Data_case_target %>%
           dplyr::mutate(final_observe = case_when(
             症例.転帰情報.最終生存確認日 == "           " ~ 症例.転帰情報.死亡日,
@@ -3011,6 +3005,7 @@ server <- function(input, output, session) {
         save(Data_summary, file="source/Data_summary.rda")
       }
       incProgress(1 / 8)
+      setProgress(detail = "3007")
       Data_MAF = Data_report() %>%
         dplyr::select(Tumor_Sample_Barcode,
                       Hugo_Symbol,
@@ -3830,6 +3825,7 @@ server <- function(input, output, session) {
       data_tmp = data_tmp_save
       Data_triplet = data_tmp %>% dplyr::select(unique_position, triplet_pre, triplet_post, CpG_TpG, CpC_TpC, odds_ratio, p_value, odds_ratio_adj, p_value_adj, pnt_col, logfold, logpval, mut_pattern, SNV_check)
       Data_MAF_target_ = Data_MAF_target %>% left_join(Data_triplet, by=c('unique_position'))
+      Data_MAF_target_all = Data_MAF_target_
       Data_tmp = Data_MAF_target_ %>%
         dplyr::filter(non_germline_non_error == 1) %>%
         dplyr::filter(#unique_alt %in% CH_candidates_base &
@@ -3870,6 +3866,7 @@ server <- function(input, output, session) {
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
       #theme(legend.position = "none")
       plots[[365]] = g
+      setProgress(detail = "3868")
       table_save_tmp_ = Data_tmp %>% dplyr::mutate(mutation_type = case_when(pnt_col == "A" ~ "Liquid dominant/enriched", TRUE ~ "Somatic enriched"))
       write_excel_csv(table_save_tmp_, "source/Table_S5_all genes.csv")
       Data_MAF_target = Data_MAF_target_save
@@ -4204,9 +4201,10 @@ server <- function(input, output, session) {
       )
 
       incProgress(1 / 8)
+      setProgress(detail = "4203")
+      
 
-
-      Data_tmp = Data_MAF_target_table_2  %>% dplyr::filter(pnt_col %in% c("A"))
+      Data_tmp = Data_MAF_target_table_2 %>% dplyr::filter(pnt_col %in% c("A"))
       CH_candidates = unique(Data_tmp$unique_alt)
       Data_tmp = Data_MAF_target %>% dplyr::filter(non_germline_non_error == 1) %>% dplyr::filter(unique_alt %in% CH_candidates & Panel == "F1Liquid CDx")
       
@@ -4901,6 +4899,7 @@ server <- function(input, output, session) {
             ((No_found_in_F1L < Min_count & No_found_in_F1 <= Min_count_F1) | non_germline_non_error != 1 | CH_genes == 0) & Lines_pre_CGP_2_or_more == 0 ~ "CH hotspots (-)\n 0~1 lines"
           )
         )
+      setProgress(detail = "4901")
       data_tmp = Data_summary %>%
         dplyr::filter(Panel == "F1Liquid CDx") %>%
         dplyr::mutate(
@@ -5419,6 +5418,130 @@ server <- function(input, output, session) {
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
       #theme(legend.position = "none")
       plots[[45]] = g
+      Data_tmp = Data_MAF_target_all %>%
+        dplyr::filter(non_germline_non_error == 1) %>%
+        dplyr::filter(#unique_alt %in% CH_candidates_base &
+          #Hugo_Symbol %in% CH_gene_entropy_3 &
+          !Hugo_Symbol %in% CH_GENE_NatComms &
+          Panel == "F1Liquid CDx")
+      Data_tmp = Data_tmp %>%
+        left_join(F1L_germline_error, by="Hugo_Symbol") %>%
+        #dplyr::filter(max_VAF >= 0.02 | is.na(max_VAF)) %>%
+        dplyr::arrange(SNV_check) %>%
+        dplyr::distinct(unique_alt, .keep_all = T)  
+      Data_tmp$CH_genes = factor(Data_tmp$CH_genes)
+      g = ggplot(Data_tmp,
+                 aes(x=logfold, y=logpval, color=mut_pattern, shape=CH_genes, label = unique_alt)) +
+        annotate("rect", xmin=-Inf, xmax=2, ymin=-Inf, ymax=Inf, fill="white", alpha=0.0) +
+        annotate("rect", xmin=2, xmax=8, ymin=-Inf, ymax=Inf, fill="#00CED1", alpha=0.05) +  # 薄い青緑
+        annotate("rect", xmin=8, xmax=Inf, ymin=-Inf, ymax=Inf, fill="#FF4500", alpha=0.08) + # 薄い赤オレンジ
+        geom_point() +
+        scale_shape_manual(values = c(3,1,4,6,8)) +
+        scale_color_manual(values = c("#000000","#4477FF","#00FF00", "#FF0000", "#8833EE")) +
+        labs(title = "Volcano plot of hotspot variants for favor F1 CDx or F1-Liquid CDx",
+             subtitle = paste0(nrow(Data_tmp), " hotspot variants found in F1 or F1L >= 10 times, all genes"),
+             x="log2 odds ratio",
+             y="-log10 p-value") +
+        theme_minimal() +
+        # geom_vline(xintercept=c(log2(threshold_OR_TP53), log2(threshold_OR)), linetype = "dashed", col="blue") +
+        #geom_vline(xintercept=c(-log2(2), log2(threshold_OR_TP53)), linetype = "dashed", col="blue") +
+        geom_hline(yintercept=-log10(threshold_P), linetype = "dashed", col="red") +
+        #geom_hline(yintercept=-log10(threshold_P_TP53), linetype = "dashed", col="blue") +
+        # coord_cartesian(xlim = c(-12,12) ,
+        #                 ylim = c(0,50)) +
+        scale_x_continuous(limits = c(-4.5,12),
+                           breaks = c(-4, -2, 0,2,4,6,8,10),
+                           labels = c("~-4", "-2", "0","2","4","6","8","10~")) +
+        scale_y_continuous(limits = c(0,32),
+                           breaks = c(0,10,20,30),
+                           labels = c("0","10","20","30~")) +
+        geom_text_repel(aes(label = unique_alt), size = 3,vjust = 0.14, max.overlaps = 15) #+
+      #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
+      #theme(legend.position = "none")
+      plots[[368]] = g
+      Data_tmp = Data_MAF_target_all %>%
+        dplyr::filter(non_germline_non_error == 1) %>%
+        dplyr::filter(#unique_alt %in% CH_candidates_base &
+          !Hugo_Symbol %in% CH_gene_entropy_3 &
+          #!Hugo_Symbol %in% CH_GENE_NatComms &
+            Panel == "F1Liquid CDx")
+      Data_tmp = Data_tmp %>%
+        left_join(F1L_germline_error, by="Hugo_Symbol") %>%
+        #dplyr::filter(max_VAF >= 0.02 | is.na(max_VAF)) %>%
+        dplyr::arrange(SNV_check) %>%
+        dplyr::distinct(unique_alt, .keep_all = T)  
+      Data_tmp$CH_genes = factor(Data_tmp$CH_genes)
+      g = ggplot(Data_tmp,
+                 aes(x=logfold, y=logpval, color=mut_pattern, shape=CH_genes, label = unique_alt)) +
+        annotate("rect", xmin=-Inf, xmax=2, ymin=-Inf, ymax=Inf, fill="white", alpha=0.0) +
+        annotate("rect", xmin=2, xmax=8, ymin=-Inf, ymax=Inf, fill="#00CED1", alpha=0.05) +  # 薄い青緑
+        annotate("rect", xmin=8, xmax=Inf, ymin=-Inf, ymax=Inf, fill="#FF4500", alpha=0.08) + # 薄い赤オレンジ
+        geom_point() +
+        scale_shape_manual(values = c(3,1,4,6,8)) +
+        scale_color_manual(values = c("#000000","#4477FF","#00FF00", "#FF0000", "#8833EE")) +
+        labs(title = "Volcano plot of hotspot variants for favor F1 CDx or F1-Liquid CDx",
+             subtitle = paste0(nrow(Data_tmp), " hotspot variants found in F1 or F1L >= 10 times, all genes"),
+             x="log2 odds ratio",
+             y="-log10 p-value") +
+        theme_minimal() +
+        # geom_vline(xintercept=c(log2(threshold_OR_TP53), log2(threshold_OR)), linetype = "dashed", col="blue") +
+        #geom_vline(xintercept=c(-log2(2), log2(threshold_OR_TP53)), linetype = "dashed", col="blue") +
+        geom_hline(yintercept=-log10(threshold_P), linetype = "dashed", col="red") +
+        #geom_hline(yintercept=-log10(threshold_P_TP53), linetype = "dashed", col="blue") +
+        # coord_cartesian(xlim = c(-12,12) ,
+        #                 ylim = c(0,50)) +
+        scale_x_continuous(limits = c(-4.5,12),
+                           breaks = c(-4, -2, 0,2,4,6,8,10),
+                           labels = c("~-4", "-2", "0","2","4","6","8","10~")) +
+        scale_y_continuous(limits = c(0,32),
+                           breaks = c(0,10,20,30),
+                           labels = c("0","10","20","30~")) +
+        geom_text_repel(aes(label = unique_alt), size = 3,vjust = 0.14, max.overlaps = 15) #+
+      #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
+      #theme(legend.position = "none")
+      plots[[369]] = g
+      setProgress(detail = "5502")
+      Data_tmp = Data_MAF_target_all %>%
+        dplyr::filter(non_germline_non_error == 1) %>%
+        dplyr::filter(#unique_alt %in% CH_candidates_base &
+          Hugo_Symbol %in% CH_gene_entropy_3 &
+            #!Hugo_Symbol %in% CH_GENE_NatComms &
+            Panel == "F1Liquid CDx")
+      Data_tmp = Data_tmp %>%
+        left_join(F1L_germline_error, by="Hugo_Symbol") %>%
+        #dplyr::filter(max_VAF >= 0.02 | is.na(max_VAF)) %>%
+        dplyr::arrange(SNV_check) %>%
+        dplyr::distinct(unique_alt, .keep_all = T)  
+      Data_tmp$CH_genes = factor(Data_tmp$CH_genes)
+      g = ggplot(Data_tmp,
+                 aes(x=logfold, y=logpval, color=mut_pattern, shape=CH_genes, label = unique_alt)) +
+        annotate("rect", xmin=-Inf, xmax=2, ymin=-Inf, ymax=Inf, fill="white", alpha=0.0) +
+        annotate("rect", xmin=2, xmax=8, ymin=-Inf, ymax=Inf, fill="#00CED1", alpha=0.05) +  # 薄い青緑
+        annotate("rect", xmin=8, xmax=Inf, ymin=-Inf, ymax=Inf, fill="#FF4500", alpha=0.08) + # 薄い赤オレンジ
+        geom_point() +
+        scale_shape_manual(values = c(3,1,4,6,8)) +
+        scale_color_manual(values = c("#000000","#4477FF","#00FF00", "#FF0000", "#8833EE")) +
+        labs(title = "Volcano plot of hotspot variants for favor F1 CDx or F1-Liquid CDx",
+             subtitle = paste0(nrow(Data_tmp), " hotspot variants found in F1 or F1L >= 10 times, all genes"),
+             x="log2 odds ratio",
+             y="-log10 p-value") +
+        theme_minimal() +
+        # geom_vline(xintercept=c(log2(threshold_OR_TP53), log2(threshold_OR)), linetype = "dashed", col="blue") +
+        #geom_vline(xintercept=c(-log2(2), log2(threshold_OR_TP53)), linetype = "dashed", col="blue") +
+        geom_hline(yintercept=-log10(threshold_P), linetype = "dashed", col="red") +
+        #geom_hline(yintercept=-log10(threshold_P_TP53), linetype = "dashed", col="blue") +
+        # coord_cartesian(xlim = c(-12,12) ,
+        #                 ylim = c(0,50)) +
+        scale_x_continuous(limits = c(-4.5,12),
+                           breaks = c(-4, -2, 0,2,4,6,8,10),
+                           labels = c("~-4", "-2", "0","2","4","6","8","10~")) +
+        scale_y_continuous(limits = c(0,32),
+                           breaks = c(0,10,20,30),
+                           labels = c("0","10","20","30~")) +
+        geom_text_repel(aes(label = unique_alt), size = 3,vjust = 0.14, max.overlaps = 15) #+
+      #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
+      #theme(legend.position = "none")
+      plots[[370]] = g
       data_tmp_uni_detail=Data_tmp %>% dplyr::mutate(mutation_type = case_when(pnt_col == "A" ~ "Liquid dominant", pnt_col == "B" ~ "Liquid enriched", TRUE ~ "Somatic enriched"))
       table_save_tmp_A = Data_tmp %>% dplyr::mutate(mutation_type = case_when(pnt_col == "A" ~ "Liquid dominant", pnt_col == "B" ~ "Liquid enriched", TRUE ~ "Somatic enriched"))
       write_excel_csv(table_save_tmp_A, "source/Table_S5_selected.csv")
@@ -5553,6 +5676,7 @@ server <- function(input, output, session) {
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
       #theme(legend.position = "none")
       plots[[65]] = g
+      setProgress(detail = "5678")
       Gene_name = "ASXL1"
       Data_tmp = Data_MAF_target %>%
         dplyr::filter(non_germline_non_error == 1) %>%
@@ -5723,6 +5847,7 @@ server <- function(input, output, session) {
         dplyr::arrange(SNV_check) %>%
         dplyr::distinct(unique_alt, .keep_all = T)  
       Data_tmp$CH_genes = factor(Data_tmp$CH_genes)
+      setProgress(detail = "5849")
       g = ggplot(Data_tmp,
                  aes(x=logfold, y=logpval, color=mut_pattern, shape=CH_genes, label = unique_alt)) +
         geom_point() +
@@ -5788,7 +5913,8 @@ server <- function(input, output, session) {
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
       #theme(legend.position = "none")
       plots[[71]] = g
-
+      setProgress(detail = "5915")
+      
       Data_tmp = Data_MAF_target %>%
         dplyr::filter(non_germline_non_error == 1) %>%
         dplyr::filter(unique_alt %in% CH_candidates_base &
@@ -5799,7 +5925,7 @@ server <- function(input, output, session) {
         dplyr::filter(max_VAF >= 0.02 | is.na(max_VAF)) %>%
         dplyr::arrange(SNV_check) %>%
         dplyr::distinct(unique_alt, .keep_all = T)
-      table_DNMT3A = read_csv("source/DNMT3A_ins.csv", show_col_types = FALSE)
+      table_DNMT3A = read_csv("source/DNMT3A_INS.csv", show_col_types = FALSE)
       table_DNMT3A = table_DNMT3A %>%
         dplyr::select(Position, Destabilizing) %>%
         dplyr::mutate(Destabilizing = case_when(
@@ -5842,6 +5968,7 @@ server <- function(input, output, session) {
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20) +
       #theme(legend.position = "none")
       plots[[9]] = g
+      setProgress(detail = "5970")
       
       Data_tmp = Data_MAF_target %>%
         dplyr::filter(Panel == "F1Liquid CDx")
@@ -5857,6 +5984,7 @@ server <- function(input, output, session) {
       } else if(lolliplot_gene == ""){
         lolliplot_gene = "DNMT3A"
       }
+      setProgress(detail = "5986")
       data_lolliplot = Data_tmp %>%
         dplyr::select(Chromosome,
                       Start_Position,
@@ -5884,6 +6012,7 @@ server <- function(input, output, session) {
         var.plot.data<-cbind(var.freq,as.numeric(as.character(var.aanum)))#hard way to remove factor
         colnames(var.plot.data)[5]<-"var.aanum"
         var.plot.data = var.plot.data[var.plot.data$var.aanum >=1 & is.finite(var.plot.data$var.aanum) & !is.na(var.plot.data$var.aanum),]
+        setProgress(detail = "6014")
         
         var.plot<-isolate(var.plot.data)
         var.plot<-var.plot[var.plot$Hugo_Symbol==lolliplot_gene,]
@@ -5891,6 +6020,7 @@ server <- function(input, output, session) {
         var.plot$amino.acid.change<-as.character(var.plot$amino.acid.change)
         
         incProgress(1 / 4)
+        setProgress(detail = "6019")
         
         p<-ggplot(var.plot,aes(var.aanum,freq,color=Variant_Classification,label=amino.acid.change)) +
           geom_segment(aes(x=var.aanum,y=0,xend=var.aanum,yend=freq),
@@ -5902,6 +6032,7 @@ server <- function(input, output, session) {
                           size=ifelse(var.plot$freq>=input$lolliplot_no,4,2),
                           fontface="bold", max.overlaps=Inf) +
           theme_classic()
+        setProgress(detail = "6031")
         proteins_acc<-read.table(file("source/UniProt.txt",
                                       encoding='UTF-8-BOM'),header=T)
         if(length(proteins_acc[proteins_acc$Hugo_Symbol==lolliplot_gene,2]) == 1){
@@ -6002,6 +6133,7 @@ server <- function(input, output, session) {
                               ifelse(Data_maf$logfold > 2, "B","C"))
       data_maf$Protein_Change = Data_maf$unique_alt
       data_maf$amino.acid.change = Data_maf$amino.acid.change
+      setProgress(detail = "6132")
       
       all_samples = (Data_summary %>% dplyr::filter(Panel == "F1Liquid CDx"))$Tumor_Sample_Barcode
       no_mut_samples = all_samples[!all_samples %in% unique(data_maf$Tumor_Sample_Barcode)]
@@ -6038,7 +6170,7 @@ server <- function(input, output, session) {
       maf_without_mut_samples <- read.maf(maf = dummy_data)
       maf_with_all_samples_rename  <- merge_mafs(mafs = list(maf_with_mut_samples_rename, maf_without_mut_samples))
       maf_with_all_samples_rename <- subsetMaf(maf_with_all_samples_rename, genes = Genes_maf_F1L, dropLevels = FALSE)
-      #write_tsv(data_maf, "source/hotspot_maf_file.tsv")
+      write_tsv(data_maf, "source/hotspot_maf_file.tsv")
       data_maf_CH_hotspot = data_maf %>% dplyr::filter(favor %in% c("A", "B"))
       maf_with_mut_samples <- read.maf(maf = data_maf_CH_hotspot)
       maf_with_all_samples  <- merge_mafs(mafs = list(maf_with_mut_samples, maf_without_mut_samples))
@@ -6122,6 +6254,7 @@ server <- function(input, output, session) {
       #                     nShiftSymbols = 1,
       #                     pvSymbols = c(42, 1),
       #                     showSum = FALSE)
+      setProgress(detail = "6247")
       output$figure_oncoplot4_data = DT::renderDataTable(Summary_figure_oncoplot4,
                                                       server = FALSE,
                                                       filter = 'top', 
@@ -6135,7 +6268,9 @@ server <- function(input, output, session) {
       data_maf = data_maf %>% 
         dplyr::arrange(Tumor_Sample_Barcode)# %>%
         #dplyr::distinct(Protein_Change,.keep_all = T)
-      maf.dset <- data_maf
+      maf.dset <- as.data.frame(data_maf)
+      maf.dset$Start_Position <- as.integer(maf.dset$Start_Position)
+      maf.dset$End_Position   <- as.integer(maf.dset$End_Position)
       maf.dset <- filterSNV(dataSet = maf.dset,
                             seq_colNames = c("Reference_Allele",
                                              "Tumor_Seq_Allele1",
@@ -6147,18 +6282,22 @@ server <- function(input, output, session) {
                                 end_colName = "End_Position",
                                 nucl_contextN = 3,
                                 BSGenomeDb = hg38)
+      setProgress(detail = "6283")
       maf.dset <- removeMismatchMut(mutData = maf.dset,
                                     refMut_colName = "Reference_Allele",
                                     context_colName = "context",
                                     refMut_format = "N")
+      setProgress(detail = "6288")
       maf.dset <- attachMutType(mutData = maf.dset,
                                 ref_colName = "Reference_Allele",
                                 var_colName = "Tumor_Seq_Allele1",
                                 var2_colName = "Tumor_Seq_Allele2",
                                 context_colName = "context")
+      setProgress(detail = "6294")
       maf.counts <- countMutTypes(mutTable = maf.dset,
                                   sample_colName = "favor",
                                   mutType_colName = "mutType")
+      setProgress(detail = "6298")
       output$figure_inter_panel_a = renderPlot({
         grid.arrange(grobs=plots[1:25],
                      ncol = 5)
@@ -6220,7 +6359,7 @@ server <- function(input, output, session) {
                      ncol = 5)
       })
       output$figure_inter_panel_p = renderPlot({
-        grid.arrange(grobs=plots[351:365],
+        grid.arrange(grobs=plots[351:372],
                      ncol = 5)
       })
       output$figure_inter_panel_download_a <- downloadHandler(
@@ -6393,8 +6532,8 @@ server <- function(input, output, session) {
           paste0("main_figure_p.pdf")
         },
         content = function(file) {
-          pdf(file, width = 60, height = 36)
-          grid.arrange(grobs=plots[351:365],
+          pdf(file, width = 60, height = 60)
+          grid.arrange(grobs=plots[351:372],
                        ncol = 5)
           dev.off()
         }
@@ -6411,6 +6550,7 @@ server <- function(input, output, session) {
                                                                    buttons = c('csv', 'copy')))
       Data_tmp3 = Data_summary %>% dplyr::filter(Panel == "F1Liquid CDx")
       #Diseases = sort(names(table(Data_tmp3$Cancername)[table(Data_tmp3$Cancername)>=50]))
+      setProgress(detail = "6551")
       data_tmp = Data_MAF_target %>%
         dplyr::filter(non_germline_non_error == 1 &
                         Hugo_Symbol %in% CH_gene_entropy_3 & 
@@ -6464,6 +6604,7 @@ server <- function(input, output, session) {
                       Years_from_1st_CTx, Lines_pre_CGP,
                       Hotspot_type,
                       mutation_pattern)
+      setProgress(detail = "6605")
       data_tmp$Cancername = factor(data_tmp$Cancername)
       data_tmp$Cancername =  relevel(data_tmp$Cancername,
                                      ref=names(sort(table(data_tmp$Cancername),decreasing = T))[[1]]) 
@@ -6490,6 +6631,7 @@ server <- function(input, output, session) {
         modify_fmt_fun(conf.high ~ function(x) ifelse(Abs(x)>100 | Abs(x)<0.01, format(x, digits = 3, scientific = TRUE), ifelse(Abs(x) != 1, format(x, digits = 3), x))) |>
         modify_fmt_fun(estimate ~ function(x) ifelse(Abs(x)>100 | Abs(x)<0.01, format(x, digits = 3, scientific = TRUE), ifelse(Abs(x) != 1, format(x, digits = 3), x))) |>
         bold_labels()
+      setProgress(detail = "6632")
       withProgress(message = "Logistic regression analysis", {
         dd <- datadist(data_tmp_uni)
         options(datadist = dd)
@@ -6514,6 +6656,7 @@ server <- function(input, output, session) {
         
         significant_factors_nomo = bw_results$names.kept
       })
+      setProgress(detail = "6659")
       output$table_inter_panel2 = render_gt({
         withProgress(message = "Rendering", {
           if(!is.null(significant_factors_nomo)){
@@ -6543,6 +6686,7 @@ server <- function(input, output, session) {
         })
       })
       
+      setProgress(detail = "6689")
       if(!is.null(significant_factors_nomo)){
         mv_tab = final_mv_glm |>
           tbl_regression(                         ## 多変量解析の表を生成
@@ -6568,19 +6712,22 @@ server <- function(input, output, session) {
           modify_caption("Factors, favor for CH hotspot, no significant factor in multivariable analysis")
       }
       as_hux_xlsx(table_flextable,file = "source/Table_odds_4.xlsx")
-
+      setProgress(detail = "6715")
+      
       logistic_data <- reactiveValues()
       if(!is.null(significant_factors_nomo)){
         log_nomogram <- nomogram(final_mv_reg, fun = plogis, lp=F, funlabel="Factors, favor for CH hotspot")
         options(datadist=NULL)
         # error in rms package
         # val <- try(rms::validate(m2, B=500), silent = FALSE)
+        setProgress(detail = "6723")
         val <- try(rms::validate(final_mv_reg, B=500), silent = FALSE)
         if (class(val) == "try-error") {
           # val = rms::validate(m2, B=500)
           val = rms::validate(final_mv_reg, B=500)
         }
         # cal = rms::calibrate(m2, B=500)
+        setProgress(detail = "6730")
         cal = rms::calibrate(final_mv_reg, B=500)
         # do not delete
         output$figure_inter_panel2 = renderPlot({
@@ -6607,6 +6754,7 @@ server <- function(input, output, session) {
           plot(log_nomogram)
         })
         logistic_data$log_nomogram = log_nomogram
+        setProgress(detail = "6757")
         # predicted_probs <- predict(m2, type = "fitted")
         predicted_probs <- predict(final_mv_reg, type = "fitted")
         # 実際のラベルの取得
@@ -6617,6 +6765,8 @@ server <- function(input, output, session) {
         logistic_data$roc_obj <- roc(actual_labels, predicted_probs)
         logistic_data$auc_value <- auc(logistic_data$roc_obj)
       }
+      setProgress(detail = "6768")
+      
       output$figure_inter_panel2_2 = renderPlot({
         # ROC 曲線のプロット
         auc_val <- round(logistic_data$auc_value, 3)
@@ -6680,6 +6830,7 @@ server <- function(input, output, session) {
                       Hotspot_type,
                       mutation_pattern)
       # --- 前処理 ---
+      setProgress(detail = "6833")
       data_lgb$Cancername = factor(data_lgb$Cancername)
       data_lgb$Cancername = relevel(data_lgb$Cancername,
                                     ref = names(sort(table(data_lgb$Cancername), decreasing = TRUE))[[1]])
@@ -6760,6 +6911,7 @@ server <- function(input, output, session) {
         theme_minimal() +
         annotate("text", x = 0.75, y = 0.25, label = paste("AUC =", auc_val), size = 5)
       plots[[149]] = g
+      setProgress(detail = "6914")
       
       importance_df$Importance <- importance_df$Importance / length(folds_grouped$splits)
       importance_df <- importance_df %>% arrange(desc(Importance))
@@ -6853,6 +7005,7 @@ server <- function(input, output, session) {
         theme_minimal() +
         annotate("text", x = 0.75, y = 0.25, label = paste("AUC =", auc_val), size = 5)
       plots[[151]] <- g1
+      setProgress(detail = "7008")
       
       # ---- Feature importance ----
       importance_df <- importance_df %>% arrange(desc(Importance))
@@ -6924,6 +7077,7 @@ server <- function(input, output, session) {
         stopCluster(cl)
         save(results, file = "source/results_logit_groupcv.rda")
       }
+      setProgress(detail = "7050")
       
       # ---- 結果まとめ ----
       importance_mat <- results$importance
@@ -6948,6 +7102,7 @@ server <- function(input, output, session) {
         theme_minimal() +
         annotate("text", x = 0.75, y = 0.25, label = paste("AUC =", auc_val), size = 5)
       plots[[366]] <- g1
+      setProgress(detail = "7105")
       
       # ---- Feature importance ----
       importance_df <- importance_df %>% arrange(desc(Importance))
@@ -7266,6 +7421,7 @@ server <- function(input, output, session) {
         add_p(test=list(all_continuous() ~ "t.test", all_categorical() ~ "chisq.test")) %>%
         bold_labels()
       as_hux_xlsx(table_summary,file = "source/Table_odds_8.xlsx")
+      setProgress(detail = "7411")
       Data_summary_F1L= Data_summary %>% filter(Panel == "F1Liquid CDx")
       Data_summary_F1S = Data_summary %>% filter(Panel == "FoundationOne CDx")
       total_patients_L <- length(unique(Data_summary_F1L$Tumor_Sample_Barcode))
@@ -7313,6 +7469,7 @@ server <- function(input, output, session) {
           TOCH_ratio = toch_count / total_count * 100
         )
       # 5. プロット作成
+      setProgress(detail = "7460")
       g <- ggplot(mutation_ratio, aes(x = reorder(Hugo_Symbol, -TOCH_ratio), y = TOCH_ratio, fill = color_group)) +
         geom_bar(stat = "identity") +
         geom_text(aes(label = paste0(round(TOCH_ratio, 1), "%")), vjust = -0.3, size = 3.5) +
@@ -7361,6 +7518,7 @@ server <- function(input, output, session) {
         ylim(0, max(freq_compare$ratio) * 1.1)
       # 結果表示または保存
       plots[[252]] <- g
+      setProgress(detail = "7509")
       mutation_counts <- Data_MAF_DNMT3A_S %>%
         dplyr::group_by(Hugo_Symbol) %>%
         dplyr::summarise(
@@ -7385,6 +7543,7 @@ server <- function(input, output, session) {
       plots[[253]] = g
       Infiltrative_genes = (freq_compare %>% filter(ratio < 10))$Hugo_Symbol
       print(1)
+      setProgress(detail = "7534")
       Target_drugs = c(
         #"Nivolumab,Ipilimumab",
         #"Ipilimumab,Nivolumab",
@@ -7417,6 +7576,7 @@ server <- function(input, output, session) {
         dplyr::select(C.CAT調査結果.基本項目.ハッシュID, censor, final_observe) %>%
         dplyr::distinct(C.CAT調査結果.基本項目.ハッシュID, .keep_all = TRUE)
       Data_case_target = left_join(Data_case_target, Data_survival_tmp, by="C.CAT調査結果.基本項目.ハッシュID")
+      setProgress(detail = "7567")
       Data_ICI_pre = Data_case_target %>%
         dplyr::select(C.CAT調査結果.基本項目.ハッシュID,
                       症例.EP前レジメン情報.薬剤名.YJ一般名.EN.,
@@ -7474,6 +7634,7 @@ server <- function(input, output, session) {
           RECIST %in% c("NE") ~ NA_integer_,
           TRUE ~ 0
         ))
+      setProgress(detail = "7601")
       Data_ICI = Data_ICI %>%
         dplyr::mutate(CTx_line = case_when(
           CTx_line == "１次治療" ~ "1",
@@ -7515,6 +7676,7 @@ server <- function(input, output, session) {
       # regimen 列がない行は空文字列に
       summary_dt[is.na(regimen), regimen := ""]
       summary_dt$regimen = str_replace(summary_dt$regimen, "Nivolumab,Ipilimumab", "Ipilimumab,Nivolumab")
+      setProgress(detail = "7667")
       #summary_dt$Overall_survival = summary_dt$time_palliative_final
       # 結果を元の data.frame に戻すなら
       Data_summary_drug_effect <- as.data.frame(summary_dt)
@@ -7572,6 +7734,7 @@ server <- function(input, output, session) {
             TRUE ~ "OTHER"
           )
         )
+      setProgress(detail = "7718")
       add_hotspot_count <- function(df_summary, df_maf, hotspot_vec, new_colname) {
         barcode_counts <- df_maf %>%
           filter(Hotspot_type %in% hotspot_vec) %>%
@@ -7596,6 +7759,7 @@ server <- function(input, output, session) {
           left_join(barcode_counts, by = "Tumor_Sample_Barcode") %>%
           tidyr::replace_na(setNames(list(0), new_colname))
       }
+      setProgress(detail = "7750")
       Data_summary_drug_effect <- Data_summary_drug_effect %>%
         add_hotspot_count(Data_MAF_target_ICI, unique(Data_MAF_target_ICI$Hotspot_type), "CH_count") %>%
         add_hotspot_count(Data_MAF_target_ICI, c("Epigenetic_TOCH", "DDR_TOCH", "MAPK_TOCH", "Minor CH_TOCH", "Splicing_TOCH"), "TOCH_count") %>%
@@ -7678,6 +7842,7 @@ server <- function(input, output, session) {
       Data_summary_drug_effect$regimen = factor(Data_summary_drug_effect$regimen)
       Data_summary_drug_effect$regimen = relevel(Data_summary_drug_effect$regimen,
                                                  ref = names(sort(table(Data_summary_drug_effect$regimen),decreasing = T))[[1]])
+      setProgress(detail = "7824")
       Data_summary_drug_effect = Data_summary_drug_effect %>%
         dplyr::mutate(Infiltraive_genes = case_when(
           Tumor_Sample_Barcode %in% (Data_MAF_target_ICI %>% dplyr::filter(Infiltrative_genes == 1))$Tumor_Sample_Barcode ~ 1,
@@ -7759,6 +7924,7 @@ server <- function(input, output, session) {
           term = factor(term, levels = rev(sort(unique(term)))),
           label = ifelse(is.na(p.value), "Reference", sprintf("OR = %.2f", estimate))
         )
+      setProgress(detail = "7905")
       plots[[168]] = ggplot(tidy_ORR, aes(x = term, y = estimate)) +
          geom_point(aes(color = p.value < 0.05), size = 3) +
          scale_color_manual(values = c("FALSE" = "steelblue", "TRUE" = "firebrick")) +
@@ -7822,6 +7988,8 @@ server <- function(input, output, session) {
         theme(legend.position = "none")
       #Data_ICI_ToT = Data_ICI_ToT %>% filter(TMB<10 & Age >49)# %>% 
         #dplyr::select(CTx_time_on_treatment, CTx_censor, CH_plus, CTx_line, Cancername, TMB_class, Age_decade, Sex, regimen)
+      setProgress(detail = "7968")
+      save(Data_ICI_ToT, file = "source/Data_ICI_ToT.rda")
       Data_ICI_ToT$Age_decade = factor(Data_ICI_ToT$Age_decade,
                                                    levels = c("70~", "60~69", "50~59", "~49"))
       Data_ICI_ToT$TMB_class = droplevels(Data_ICI_ToT$TMB_class)
@@ -7836,6 +8004,7 @@ server <- function(input, output, session) {
       fit <- coxph(form, data = Data_ICI_ToT)
       summary_fit <- summary(fit)
       # ハザード比と信頼区間の抽出
+      setProgress(detail = "7986") 
       hr <- summary_fit$coefficients[, "exp(coef)"]
       lower <- summary_fit$conf.int[, "lower .95"]
       upper <- summary_fit$conf.int[, "upper .95"]
@@ -7928,7 +8097,38 @@ server <- function(input, output, session) {
       labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI, df_plot$P_value_str)
       #labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI)
       # フォレストプロットの作成
-      forest_plot = forestplot(labeltext = labeltext,
+      setProgress(detail = "8078")
+      ok <- is.na(df_plot$HR) | (
+        df_plot$HR > 0 & df_plot$Lower > 0 & df_plot$Upper > 0 &
+          df_plot$Lower <= df_plot$Upper
+      )
+      
+      df_plot$HR[!ok] <- NA
+      df_plot$Lower[!ok] <- NA
+      df_plot$Upper[!ok] <- NA
+      df_plot$HR_CI[!ok] <- ""
+      df_plot$P_value_str[!ok] <- ""
+      logf <- "source/app_debug.log"  # 書ける場所に変更可
+      
+      log_msg <- function(...) {
+        msg <- paste0(format(Sys.time(), "%F %T"), " | ", paste(..., collapse=" "))
+        cat(msg, "\n", file = logf, append = TRUE)
+      }
+      
+      safe_step <- function(step, expr) {
+        setProgress(detail = step)
+        log_msg("STEP", step)
+        tryCatch(expr,
+                 error = function(e) {
+                   log_msg("ERROR at", step, ":", conditionMessage(e))
+                   showNotification(paste("ERROR at", step, ":", conditionMessage(e)),
+                                    type = "error", duration = NULL)
+                   stop(e)  # ここで止める
+                 })
+      }
+      setProgress(detail = "8110") 
+      safe_step("8078_before_forestplot", {
+        forest_plot = forestplot(labeltext = labeltext,
                                mean = df_plot$HR,
                                lower = df_plot$Lower,
                                upper = df_plot$Upper,
@@ -7941,7 +8141,10 @@ server <- function(input, output, session) {
                                is.summary = df_plot$Label %in% unique_subgroups,
                                lty.zero = 4,
                                lwd.zero = 2, 
-                               col.zero = "black" ) %>%
+                               col.zero = "black" )
+      })
+      safe_step("8079_after_forestplot", {
+        forest_plot <- forest_plot %>%
         fp_set_style(
           box = gpar(fill = "black", col = "darkblue", cex = .1),
           line = "black",
@@ -7958,13 +8161,18 @@ server <- function(input, output, session) {
         ) %>%
         fp_decorate_graph(graph.pos = 5) %>%
         fp_set_zebra_style("#EFEFEF", ignore_subheaders = TRUE)
-      grob_plot <- grid.grabExpr(print(forest_plot))
+      })
+      setProgress(detail = "8165") 
+      safe_step("8166_grob_plot", {
+        grob_plot <- grid.grabExpr(print(forest_plot))
+      })
       # キャプチャした grob を ggplot2 の枠組みに組み込む
       ggplot_plot <- ggplot() +
         annotation_custom(grob_plot) +
         theme_void() # 必要に応じてテーマを調整
       # これで ggdraw で ggplot_plot を使用できるはずです
       plots[[357]] <- ggdraw(ggplot_plot)
+      setProgress(detail = "8093")
       
       df <- data.frame(Variable = variables,
                        HR = hr,
@@ -8041,6 +8249,7 @@ server <- function(input, output, session) {
         stringsAsFactors = FALSE
       )
       # 見出し行とデータの結合
+      setProgress(detail = "8192")
       df_plot <- data.frame()
       for (subgroup in unique_subgroups) {
         header <- header_rows[header_rows$Subgroup == subgroup, ]
@@ -8090,6 +8299,285 @@ server <- function(input, output, session) {
       # これで ggdraw で ggplot_plot を使用できるはずです
       plots[[358]] <- ggdraw(ggplot_plot)
       
+      Data_ICI_ToT_save = Data_ICI_ToT
+      Data_ICI_ToT = Data_ICI_ToT %>% dplyr::filter(TMB_class == "TMB<10")
+      surv_obj <- Surv(time = Data_ICI_ToT$CTx_time_on_treatment,
+                       event = Data_ICI_ToT$CTx_censor)
+      #form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + Age_decade + Sex + regimen + Alcoholic_history + Smoking_history + Brain_met + Lymph_met + Lung_met + Bone_met + Liver_met")
+      form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + Age_decade + Sex + regimen + Alcoholic_history + Smoking_history + Brain_met + Lymph_met + Lung_met + Bone_met + Liver_met")
+      #form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + TMB_class + Age_decade + Sex + regimen")
+      fit <- coxph(form, data = Data_ICI_ToT)
+      summary_fit <- summary(fit)
+      # ハザード比と信頼区間の抽出
+      hr <- summary_fit$coefficients[, "exp(coef)"]
+      lower <- summary_fit$conf.int[, "lower .95"]
+      upper <- summary_fit$conf.int[, "upper .95"]
+      p_values <- summary_fit$coefficients[, "Pr(>|z|)"]
+      # 変数名の取得
+      setProgress(detail = "8257")
+      variables <- rownames(summary_fit$coefficients)
+      # データフレームの作成
+      df <- data.frame(Variable = variables,
+                       HR = hr,
+                       Lower = lower,
+                       Upper = upper,
+                       P_value = p_values,
+                       stringsAsFactors = FALSE)
+      subgroups <- c("CH_plus", "Cancername", "regimen", "Age_decade", "CTx_line")
+      #subgroups <- c("CH_plus", "regimen", "Age_decade", "Sex", "TMB_class", "CTx_line")
+      #subgroups <- c("CH_plus", "TMB_class", "regimen")
+      #subgroups <- c("CH_plus", "TMB_class", "Age_decade", "regimen")
+      #subgroups <- c("CH_plus", "Cancername", "Sex", "CTx_line", "TMB_class", "Age_decade", "regimen")
+      #subgroups <- c("CH_plus", "Cancername", "Sex", "CTx_line", "Age_decade", "regimen", "Brain_met", "Alcoholic_history", "Smoking_history", "Lymph_met", "Lung_met", "Bone_met", "Liver_met")
+      reference_levels <- list(
+        CH_plus = "0",
+        Cancername = "LUNG",
+        Sex = "Female",
+        CTx_line = "1",
+        Age_decade = "70~",
+        regimen = "Nivolumab"
+      )
+      df_list <- list()
+      for (var in subgroups) {
+        levels_var <- levels(factor(Data_ICI_ToT[[var]]))
+        counts <- as.numeric(table(Data_ICI_ToT[[var]]))
+        ref_level <- reference_levels[[var]]
+        df_sub <- data.frame(
+          Subgroup = var,
+          Level = levels_var,
+          Count = counts,
+          stringsAsFactors = FALSE
+        )
+        df_sub$HR <- NA
+        df_sub$Lower <- NA
+        df_sub$Upper <- NA
+        df_sub$P_value <- NA
+        df_sub$Reference <- FALSE
+        df_sub$Reference[df_sub$Level == ref_level] <- TRUE
+        for (i in 1:nrow(df_sub)) {
+          var_name <- paste0(var, df_sub$Level[i])
+          if (var_name %in% df$Variable) {
+            df_sub$HR[i] <- df$HR[df$Variable == var_name]
+            df_sub$Lower[i] <- df$Lower[df$Variable == var_name]
+            df_sub$Upper[i] <- df$Upper[df$Variable == var_name]
+            df_sub$P_value[i] <- df$P_value[df$Variable == var_name]
+          }
+        }
+        df_list[[var]] <- df_sub
+      }
+      df_all <- do.call(rbind, df_list)
+      df_all$Label <- ifelse(df_all$Reference, paste0(df_all$Level, " (Reference)"), df_all$Level)
+      df_all$HR_CI <- ifelse(is.na(df_all$HR), "", sprintf("%.2f (%.2f, %.2f)", df_all$HR, df_all$Lower, df_all$Upper))
+      df_all$P_value_str <- ifelse(is.na(df_all$P_value), "", sprintf("%.3f", df_all$P_value))
+      df_all["CH_plus.1", "Subgroup"] = "TI-CH detection"
+      df_all["CH_plus.2", "Subgroup"] = "TI-CH detection"
+      df_all["CH_plus.1", "Label"] = "No (Reference)"
+      df_all["CH_plus.2", "Label"] = "Yes"
+      df_all$Label[df_all$Label == "<10"] = "<10 (Reference)"
+      df_all$Subgroup[df_all$Subgroup == "Cancername"] = "Cancer type"
+      df_all$Subgroup[df_all$Subgroup == "regimen"] = "Regimen"
+      df_all$Subgroup[df_all$Subgroup == "CTx_line"] = "CTx line"
+      df_all$Subgroup[df_all$Subgroup == "Age_decade"] = "Age"
+      # 見出し行の挿入
+      unique_subgroups <- unique(df_all$Subgroup)
+      unique_subgroups[unique_subgroups == "CH_plus"] = "TI-CH detection"
+      header_rows <- data.frame(
+        Subgroup = unique_subgroups,
+        Label = unique_subgroups,
+        Count = NA,
+        HR_CI = NA,
+        P_value_str = "",
+        stringsAsFactors = FALSE
+      )
+      # 見出し行とデータの結合
+      df_plot <- data.frame()
+      for (subgroup in unique_subgroups) {
+        header <- header_rows[header_rows$Subgroup == subgroup, ]
+        data_sub <- df_all[df_all$Subgroup == subgroup, ]
+        df_plot <- bind_rows(df_plot, header, data_sub,)
+      }
+      # ラベルテキストの作成
+      labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI, df_plot$P_value_str)
+      #labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI)
+      # フォレストプロットの作成
+      forest_plot = forestplot(labeltext = labeltext,
+                               mean = df_plot$HR,
+                               lower = df_plot$Lower,
+                               upper = df_plot$Upper,
+                               zero = 1,
+                               boxsize = .2,
+                               xlog = TRUE,
+                               col = fpColors(box = "royalblue", line = "darkblue", summary = "royalblue"),
+                               xlab = "Hazard Ratio",
+                               title = "Cox Proportional Hazards Model\nF1 CDx, TMB-low, time on immune checkpoint inhibitor trearmented",
+                               is.summary = df_plot$Label %in% unique_subgroups,
+                               lty.zero = 4,
+                               lwd.zero = 2, 
+                               col.zero = "black" ) %>%
+        fp_set_style(
+          box = gpar(fill = "black", col = "darkblue", cex = .1),
+          line = "black",
+          summary = "black",
+          align = "lccccc",
+          hrz_lines = "black",
+          txt_gp = fpTxtGp(ticks = gpar(cex = 1, box = gpar(cex = .1)))
+        ) %>%
+        fp_add_header(
+          "Subgroup",
+          "N",
+          "HR (95%CI)",
+          "P-value"
+        ) %>%
+        fp_decorate_graph(graph.pos = 5) %>%
+        fp_set_zebra_style("#EFEFEF", ignore_subheaders = TRUE)
+      setProgress(detail = "8373")
+      grob_plot <- grid.grabExpr(print(forest_plot))
+      # キャプチャした grob を ggplot2 の枠組みに組み込む
+      ggplot_plot <- ggplot() +
+        annotation_custom(grob_plot) +
+        theme_void() # 必要に応じてテーマを調整
+      # これで ggdraw で ggplot_plot を使用できるはずです
+      plots[[371]] <- ggdraw(ggplot_plot)
+
+      Data_ICI_ToT = Data_ICI_ToT_save %>% dplyr::filter(TMB_class != "TMB<10")
+      surv_obj <- Surv(time = Data_ICI_ToT$CTx_time_on_treatment,
+                       event = Data_ICI_ToT$CTx_censor)
+      #form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + Age_decade + Sex + regimen + Alcoholic_history + Smoking_history + Brain_met + Lymph_met + Lung_met + Bone_met + Liver_met")
+      form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + Age_decade + Sex + regimen + Alcoholic_history + Smoking_history + Brain_met + Lymph_met + Lung_met + Bone_met + Liver_met")
+      #form <- as.formula("surv_obj ~ CH_plus + CTx_line + Cancername + TMB_class + Age_decade + Sex + regimen")
+      fit <- coxph(form, data = Data_ICI_ToT)
+      summary_fit <- summary(fit)
+      # ハザード比と信頼区間の抽出
+      hr <- summary_fit$coefficients[, "exp(coef)"]
+      lower <- summary_fit$conf.int[, "lower .95"]
+      upper <- summary_fit$conf.int[, "upper .95"]
+      p_values <- summary_fit$coefficients[, "Pr(>|z|)"]
+      # 変数名の取得
+      variables <- rownames(summary_fit$coefficients)
+      # データフレームの作成
+      df <- data.frame(Variable = variables,
+                       HR = hr,
+                       Lower = lower,
+                       Upper = upper,
+                       P_value = p_values,
+                       stringsAsFactors = FALSE)
+      subgroups <- c("CH_plus", "Cancername", "regimen", "Age_decade", "CTx_line")
+      #subgroups <- c("CH_plus", "regimen", "Age_decade", "Sex", "TMB_class", "CTx_line")
+      #subgroups <- c("CH_plus", "TMB_class", "regimen")
+      #subgroups <- c("CH_plus", "TMB_class", "Age_decade", "regimen")
+      #subgroups <- c("CH_plus", "Cancername", "Sex", "CTx_line", "TMB_class", "Age_decade", "regimen")
+      #subgroups <- c("CH_plus", "Cancername", "Sex", "CTx_line", "Age_decade", "regimen", "Brain_met", "Alcoholic_history", "Smoking_history", "Lymph_met", "Lung_met", "Bone_met", "Liver_met")
+      reference_levels <- list(
+        CH_plus = "0",
+        Cancername = "LUNG",
+        Sex = "Female",
+        CTx_line = "1",
+        Age_decade = "70~",
+        regimen = "Nivolumab"
+      )
+      df_list <- list()
+      for (var in subgroups) {
+        levels_var <- levels(factor(Data_ICI_ToT[[var]]))
+        counts <- as.numeric(table(Data_ICI_ToT[[var]]))
+        ref_level <- reference_levels[[var]]
+        df_sub <- data.frame(
+          Subgroup = var,
+          Level = levels_var,
+          Count = counts,
+          stringsAsFactors = FALSE
+        )
+        df_sub$HR <- NA
+        df_sub$Lower <- NA
+        df_sub$Upper <- NA
+        df_sub$P_value <- NA
+        df_sub$Reference <- FALSE
+        df_sub$Reference[df_sub$Level == ref_level] <- TRUE
+        for (i in 1:nrow(df_sub)) {
+          var_name <- paste0(var, df_sub$Level[i])
+          if (var_name %in% df$Variable) {
+            df_sub$HR[i] <- df$HR[df$Variable == var_name]
+            df_sub$Lower[i] <- df$Lower[df$Variable == var_name]
+            df_sub$Upper[i] <- df$Upper[df$Variable == var_name]
+            df_sub$P_value[i] <- df$P_value[df$Variable == var_name]
+          }
+        }
+        df_list[[var]] <- df_sub
+      }
+      df_all <- do.call(rbind, df_list)
+      df_all$Label <- ifelse(df_all$Reference, paste0(df_all$Level, " (Reference)"), df_all$Level)
+      df_all$HR_CI <- ifelse(is.na(df_all$HR), "", sprintf("%.2f (%.2f, %.2f)", df_all$HR, df_all$Lower, df_all$Upper))
+      df_all$P_value_str <- ifelse(is.na(df_all$P_value), "", sprintf("%.3f", df_all$P_value))
+      df_all["CH_plus.1", "Subgroup"] = "TI-CH detection"
+      df_all["CH_plus.2", "Subgroup"] = "TI-CH detection"
+      df_all["CH_plus.1", "Label"] = "No (Reference)"
+      df_all["CH_plus.2", "Label"] = "Yes"
+      df_all$Label[df_all$Label == "<10"] = "<10 (Reference)"
+      df_all$Subgroup[df_all$Subgroup == "Cancername"] = "Cancer type"
+      df_all$Subgroup[df_all$Subgroup == "regimen"] = "Regimen"
+      df_all$Subgroup[df_all$Subgroup == "CTx_line"] = "CTx line"
+      df_all$Subgroup[df_all$Subgroup == "Age_decade"] = "Age"
+      # 見出し行の挿入
+      setProgress(detail = "8460")
+      unique_subgroups <- unique(df_all$Subgroup)
+      unique_subgroups[unique_subgroups == "CH_plus"] = "TI-CH detection"
+      header_rows <- data.frame(
+        Subgroup = unique_subgroups,
+        Label = unique_subgroups,
+        Count = NA,
+        HR_CI = NA,
+        P_value_str = "",
+        stringsAsFactors = FALSE
+      )
+      # 見出し行とデータの結合
+      df_plot <- data.frame()
+      for (subgroup in unique_subgroups) {
+        header <- header_rows[header_rows$Subgroup == subgroup, ]
+        data_sub <- df_all[df_all$Subgroup == subgroup, ]
+        df_plot <- bind_rows(df_plot, header, data_sub,)
+      }
+      # ラベルテキストの作成
+      labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI, df_plot$P_value_str)
+      #labeltext <- cbind(df_plot$Label, df_plot$Count, df_plot$HR_CI)
+      # フォレストプロットの作成
+      forest_plot = forestplot(labeltext = labeltext,
+                               mean = df_plot$HR,
+                               lower = df_plot$Lower,
+                               upper = df_plot$Upper,
+                               zero = 1,
+                               boxsize = .2,
+                               xlog = TRUE,
+                               col = fpColors(box = "royalblue", line = "darkblue", summary = "royalblue"),
+                               xlab = "Hazard Ratio",
+                               title = "Cox Proportional Hazards Model\nF1 CDx, TMB-high, time on immune checkpoint inhibitor trearmented",
+                               is.summary = df_plot$Label %in% unique_subgroups,
+                               lty.zero = 4,
+                               lwd.zero = 2, 
+                               col.zero = "black" ) %>%
+        fp_set_style(
+          box = gpar(fill = "black", col = "darkblue", cex = .1),
+          line = "black",
+          summary = "black",
+          align = "lccccc",
+          hrz_lines = "black",
+          txt_gp = fpTxtGp(ticks = gpar(cex = 1, box = gpar(cex = .1)))
+        ) %>%
+        fp_add_header(
+          "Subgroup",
+          "N",
+          "HR (95%CI)",
+          "P-value"
+        ) %>%
+        fp_decorate_graph(graph.pos = 5) %>%
+        fp_set_zebra_style("#EFEFEF", ignore_subheaders = TRUE)
+      grob_plot <- grid.grabExpr(print(forest_plot))
+      # キャプチャした grob を ggplot2 の枠組みに組み込む
+      ggplot_plot <- ggplot() +
+        annotation_custom(grob_plot) +
+        theme_void() # 必要に応じてテーマを調整
+      # これで ggdraw で ggplot_plot を使用できるはずです
+      plots[[372]] <- ggdraw(ggplot_plot)
+
+      Data_ICI_ToT = Data_ICI_ToT_save
       data_tmp_table_TICH = Data_ICI_ToT %>%
         dplyr::mutate(
           CH_status = case_when(
@@ -8130,6 +8618,7 @@ server <- function(input, output, session) {
           add_p(test=list(all_continuous() ~ "t.test", all_categorical() ~ "chisq.test")) %>%
           bold_labels() %>% as_gt()
       })
+      setProgress(detail = "8561")
       table_summary = data_tmp_table_TICH %>%
         tbl_summary(
           by = "CH_status",
@@ -8248,6 +8737,7 @@ server <- function(input, output, session) {
                  subtitle = "F1-solid, any TICH, Nivo/Pembro") +
             theme_minimal() +
             theme(legend.position = "none")
+          setProgress(detail = "8653")
           
       Data_ICI_ToT = Data_summary_drug_effect %>%
         dplyr::filter(Panel %in% c("FoundationOne CDx", "F1Liquid CDx")) %>%
@@ -8829,6 +9319,7 @@ server <- function(input, output, session) {
           y = "Odds Ratio (95% CI)"
         ) +
         theme_minimal()
+      setProgress(detail = "9235")
       # survfit_t <- survfit(Surv(CTx_time_on_treatment, CTx_censor)~ TOCH_plus + LOCH_plus, data=Data_ICI_ToT,type = "kaplan-meier", conf.type = "log-log")
       # diff_0 = survdiff(Surv(CTx_time_on_treatment, CTx_censor)~ TOCH_plus + LOCH_plus,
       #                   data=Data_ICI_ToT, rho=0)
@@ -9458,6 +9949,7 @@ server <- function(input, output, session) {
              subtitle = "F1-liquid, DDR CH, Nivo/Pembro") +
         theme_minimal() +
         theme(legend.position = "none")
+      setProgress(detail = "9865")
       data_tmp_table_DDR_TOCH = Data_ICI_ToT %>%
         dplyr::mutate(
           CH_status = case_when(
@@ -10021,6 +10513,7 @@ server <- function(input, output, session) {
       plots[[330]] = 
         surv_curv_ICI(survfit_t, Data_ICI_ToT, paste0("Overall survival from 1L-CTx initiation, Nivo/Pembro, F1-solid, Epigenetic CH (+)"), diff_0, diff_1, diff_2)
       diff_2 = coxph(Surv(Overall_survival, censor)~CH_plus + CTx_line + Cancername + TMB_class + Age_decade + Sex + regimen, data=Data_ICI_ToT)
+      setProgress(detail = "10429")
       # 2. HR・CI を整形
       tidy_HR <- tidy(diff_2, conf.int = TRUE, exponentiate = TRUE) %>%
         filter(term != "(Intercept)") %>%
@@ -10578,6 +11071,7 @@ server <- function(input, output, session) {
           y = "Odds Ratio (95% CI)"
         ) +
         theme_minimal()
+      setProgress(detail = "10987")
       survfit_t <- survfit(Surv(CTx_time_on_treatment, CTx_censor)~CH_plus, data=Data_ICI_ToT,type = "kaplan-meier", conf.type = "log-log")
       diff_0 = survdiff(Surv(CTx_time_on_treatment, CTx_censor)~CH_plus,
                         data=Data_ICI_ToT, rho=0)
@@ -11250,6 +11744,7 @@ server <- function(input, output, session) {
       # generate_overlap_matrix(MSKCC_mutation_table, gene_name1 = "DNMT3A",  gene_name2 = c("DNMT3A", "CHEK2"), mut1_filter = mut1_cond, mut2_filter = mut2_cond)
       # print(1)
       print(1)
+      setProgress(detail = "11660")
       desired_columns <- c(
         "Gene", "Sample ID", "Cancer Type", "Protein Change", "Chromosome",
         "Start Pos", "End Pos", "Ref", "Var", "Allele Freq (T)",
@@ -11606,6 +12101,7 @@ server <- function(input, output, session) {
       plots[[344]] = 
         surv_curv_ICI(survfit_t, Data_ICI_ToT, paste0("Overall survival, PD-1i/PD-L1i, MSKCC, Epigenetic TICH variant (+)"), diff_0, diff_1, diff_2)
       diff_2 = coxph(Surv(CTx_time_on_treatment, CTx_censor)~CH_plus + Cancername + TMB_class + Age_decade + Sex, data=Data_ICI_ToT)
+      setProgress(detail = "12017")
       # 2. HR・CI を整形
       tidy_HR <- tidy(diff_2, conf.int = TRUE, exponentiate = TRUE) %>%
         filter(term != "(Intercept)") %>%
@@ -12326,6 +12822,7 @@ server <- function(input, output, session) {
           y = "Odds Ratio (95% CI)"
         ) +
         theme_minimal()
+      setProgress(detail = "12738")
       survfit_t <- survfit(Surv(CTx_time_on_treatment, CTx_censor)~CH_plus, data=Data_ICI_ToT,type = "kaplan-meier", conf.type = "log-log")
       diff_0 = survdiff(Surv(CTx_time_on_treatment, CTx_censor)~CH_plus,
                         data=Data_ICI_ToT, rho=0)
@@ -12632,6 +13129,7 @@ server <- function(input, output, session) {
         )
       # プロット
       label_offset <- 0.4
+      setProgress(detail = "13045")
       plots[[298]] <- ggplot(tidy_HR_all, aes(x = term, y = estimate)) +
         geom_point(aes(color = p.value < 0.05), size = 3) +
         scale_color_manual(values = c("FALSE" = "steelblue", "TRUE" = "firebrick")) +
@@ -13335,6 +13833,7 @@ server <- function(input, output, session) {
         )
       # プロット
       label_offset <- 0.4
+      setProgress(detail = "13749")
       plots[[339]] <- ggplot(tidy_HR_all, aes(x = term, y = estimate)) +
         geom_point(aes(color = p.value < 0.05), size = 3) +
         scale_color_manual(values = c("FALSE" = "steelblue", "TRUE" = "firebrick")) +
@@ -13713,6 +14212,7 @@ server <- function(input, output, session) {
       final_mv_reg <- m1 %>%
         stats::step(direction = "backward", trace = FALSE)
       significant_factors = names(final_mv_reg$xlevels)
+      setProgress(detail = "14128")
       if(!is.null(significant_factors)){
         significant_factors_CTx_Effect = c(significant_factors, "CTx_Effect")
         data_tmp_mv = data.table(data_tmp_table_regression)[,..significant_factors_CTx_Effect]
@@ -14105,6 +14605,7 @@ server <- function(input, output, session) {
         dplyr::select(C.CAT調査結果.基本項目.ハッシュID, censor, final_observe) %>%
         dplyr::distinct(C.CAT調査結果.基本項目.ハッシュID, .keep_all = TRUE)
       Data_case_target = left_join(Data_case_target, Data_survival_tmp, by="C.CAT調査結果.基本項目.ハッシュID")
+      setProgress(detail = "14520")
       Data_ICI_pre = Data_case_target %>%
         dplyr::select(C.CAT調査結果.基本項目.ハッシュID,
                       症例.EP前レジメン情報.薬剤名.YJ一般名.EN.,
@@ -14754,6 +15255,7 @@ server <- function(input, output, session) {
                        P_value = p_values,
                        stringsAsFactors = FALSE)
       subgroups <- c("CH_plus", "Cancername", "Sex", "Platinum", "Smoking_history", "Alcoholic_history", "Double_cancer", "Multiple_nodules")
+      setProgress(detail = "15171")
       reference_levels <- list(
         CH_plus = "0",
         Cancername = "BILIARY_TRACT",
@@ -15129,6 +15631,7 @@ server <- function(input, output, session) {
                                 data=Data_survival_CGP)
       diff_0 = coxph(Surv(time = time_palliative_final, censor)~LOCH_plus,
                      data=Data_survival_CGP)
+      setProgress(detail = "15547")
       plots[[208]] = surv_curv_CTx_naive(survival_simple, Data_survival_CGP, paste("Overall survival, F1-L after 2L CTx,", paste(survival_simple[[1]],collapse = "/"),"patients, cKendall tau=",
                                                                                    format(independence_check$PE,digits = 3)),
                                          c("LOCH (-)",
@@ -15431,6 +15934,7 @@ server <- function(input, output, session) {
       diff_0 = coxph(Surv(time = time_palliative_enroll,
                           time2 = time_palliative_final, censor)~CH_plus,
                      data=Data_survival_CGP)
+      setProgress(detail = "15850")
       plots[[180]] = surv_curv_CTx(survival_simple, Data_survival_CGP, paste("Overall survival, F1-L after 1L CTx,", paste(survival_simple[[1]],collapse = "/"),"patients, cKendall tau=",
                                                                              format(independence_check$PE,digits = 3)),
                                    c("TOCH/LOCH (-)",
@@ -15979,21 +16483,44 @@ server <- function(input, output, session) {
         tmp3 = tmp[tmp0 == 0]
         tmp4 = tmp2[tmp1 %in% tmp3]
         Data_GENIE_blood = Data_GENIE_blood[-tmp4,]
+        # chain <- import.chain(chain_file)
+        # lifted_gr <- liftOver(gr, chain)
+        # tmp = lifted_gr@partitioning@end
+        # tmp0 = diff(tmp)
+        # tmp1 = tmp[tmp0 != 1]
+        # tmp2 = tmp1 - 1:length(tmp1) + 2
+        # tmp3 = tmp1 + 2
+        # lifted_gr <- unlist(lifted_gr)
+        # lifted_gr = lifted_gr[-tmp3]
+        # Data_GENIE_blood$Chromosome <- as.character(seqnames(lifted_gr))
+        # Data_GENIE_blood$Start_Position <- start(lifted_gr)
+        # Data_GENIE_blood$End_Position <- end(lifted_gr)
+        # 座標は整数に（落ちにくくする：推奨）
+        Data_GENIE_blood$Start_Position <- as.integer(Data_GENIE_blood$Start_Position)
+        Data_GENIE_blood$End_Position   <- as.integer(Data_GENIE_blood$End_Position)
         gr <- GRanges(seqnames = Data_GENIE_blood$Chromosome,
                       ranges = IRanges(start = Data_GENIE_blood$Start_Position, end = Data_GENIE_blood$End_Position),
                       strand = "*")
+        
         chain <- import.chain(chain_file)
-        lifted_gr <- liftOver(gr, chain)
-        tmp = lifted_gr@partitioning@end
-        tmp0 = diff(tmp)
-        tmp1 = tmp[tmp0 != 1]
-        tmp2 = tmp1 - 1:length(tmp1) + 2
-        tmp3 = tmp1 + 2
-        lifted_gr <- unlist(lifted_gr)
-        lifted_gr = lifted_gr[-tmp3]
+        
+        lifted_list <- liftOver(gr, chain)      # GRangesList
+        nmap <- elementNROWS(lifted_list)       # 各入力が何件に変換されたか
+        
+        # 0件（liftOver失敗）を落とす
+        keep <- which(nmap >= 1)
+        Data_GENIE_blood <- Data_GENIE_blood[keep, , drop = FALSE]
+        lifted_list <- lifted_list[keep]
+        
+        # 複数件は先頭1件だけ採用（= 1:1へ）
+        lifted_1 <- endoapply(lifted_list, function(x) x[1])
+        lifted_gr <- unlist(lifted_1, use.names = FALSE)  # GRanges（行数=Data_GENIE_blood）
+        
+        # 変換後座標を戻す
         Data_GENIE_blood$Chromosome <- as.character(seqnames(lifted_gr))
         Data_GENIE_blood$Start_Position <- start(lifted_gr)
         Data_GENIE_blood$End_Position <- end(lifted_gr)
+        
         Data_GENIE_blood$HGVSp_Short[is.na(Data_GENIE_blood$HGVSp_Short)] = Data_GENIE_blood$HGVSc[is.na(Data_GENIE_blood$HGVSp_Short)]
         Data_GENIE_blood$HGVSp_Short[is.na(Data_GENIE_blood$HGVSp_Short)] = paste0(
           Data_GENIE_blood$Start_Position[is.na(Data_GENIE_blood$HGVSp_Short)],
@@ -16053,6 +16580,7 @@ server <- function(input, output, session) {
       #       nchar(Reference_Allele) > 1 & nchar(Tumor_Seq_Allele2) == 1 ~ Start_Position + nchar(Reference_Allele) - 1,
       #       TRUE ~ End_Position
       #     ))
+      setProgress(detail = "16473")
       Data_GENIE_tmp = Data_GENIE_tmp %>%
         dplyr::mutate(
           Tumor_Seq_Allele2 = case_when(
@@ -16562,6 +17090,7 @@ server <- function(input, output, session) {
         geom_text_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20)
       #geom_label_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 20)
       #theme(legend.position = "none")
+      setProgress(detail = "16983")
       plots[[46]] = g
       table_save_tmp_F = data_tmp %>% dplyr::mutate(mutation_type = case_when(pnt_col == "A" ~ "Liquid dominant", pnt_col == "B" ~ "Liquid enriched", TRUE ~ "Somatic enriched"))
       write_excel_csv(table_save_tmp_F, "source/Table_S5_GENIE.csv")
@@ -17062,6 +17591,7 @@ server <- function(input, output, session) {
              y = "Proportion (%)",
              fill = "Mutation Pattern") +
         theme_minimal()
+      setProgress(detail = "17484")
       plots[[85]] = g
       # Data_MAF_target_table_GENIE = Data_GENIE %>%
       #   dplyr::filter(CH_hotspot_candidate == 1) %>%
@@ -17622,6 +18152,7 @@ server <- function(input, output, session) {
         dplyr::filter(Reference_Allele != "-" & Tumor_Seq_Allele2 != "-" &
                         nchar(Reference_Allele) == 1 &
                         nchar(Tumor_Seq_Allele2) == 1)
+      maf.dset_GENIE = as.data.frame(maf.dset_GENIE)
       maf.dset_GENIE <- filterSNV(dataSet = maf.dset_GENIE,
                             seq_colNames = c("Reference_Allele",
                                              "Tumor_Seq_Allele2"))
@@ -17683,6 +18214,7 @@ server <- function(input, output, session) {
         # msigPlot(maf.counts_DNMT3A_GENIE, sample = "882", main = "R882 mutation", ylim = c(0, 0.25))
         # msigPlot(maf.counts_DNMT3A_GENIE, sample = "other mut", main = "Other DNMT3A mutation", ylim = c(0, 0.25))
         # msigPlot(maf.counts_DNMT3A_GENIE, sample = "none", main = "No DNMT3A mutation", ylim = c(0, 0.25))
+        setProgress(detail = "18106")
         par(mfrow = c(5, 1))
         msigPlot(maf.counts_DNMT3A_GENIE,
                  sample = "INS and 882",
@@ -17803,6 +18335,7 @@ server <- function(input, output, session) {
         dplyr::filter(Reference_Allele != "-" & Tumor_Seq_Allele2 != "-" &
                         nchar(Reference_Allele) == 1 &
                         nchar(Tumor_Seq_Allele2) == 1)
+      maf.dset_GENIE_all = as.data.frame(maf.dset_GENIE_all)
       maf.dset_GENIE_all <- filterSNV(dataSet = maf.dset_GENIE_all,
                                   seq_colNames = c("Reference_Allele",
                                                    "Tumor_Seq_Allele2"))
@@ -18032,7 +18565,7 @@ server <- function(input, output, session) {
       data_maf_DNMT3A$Tumor_Sample_Barcode = Data_maf_DNMT3A$Tumor_Sample_Barcode
       data_maf_DNMT3A$DNMT3A_status = Data_maf_DNMT3A$DNMT3A_status
       data_maf_DNMT3A$Protein_Change = Data_maf_DNMT3A$unique_alt
-      maf.dset <- data_maf_DNMT3A
+      maf.dset <- as.data.frame(data_maf_DNMT3A)
       maf.dset <- filterSNV(dataSet = maf.dset,
                             seq_colNames = c("Reference_Allele",
                                              "Tumor_Seq_Allele1",
@@ -18183,6 +18716,7 @@ server <- function(input, output, session) {
                                       digits=2),
                                " muts/pt)"),
                  ylim = c(0, 0.20))
+        setProgress(detail = "18607")
         msigPlot(maf.counts_DNMT3A,
                  sample = "none",
                  main = paste0("C-CAT patients with no DNMT3A hotspot mutations, ",
@@ -18350,7 +18884,7 @@ server <- function(input, output, session) {
       data_maf_DNMT3A_2$Tumor_Sample_Barcode = Data_maf_DNMT3A_2$Tumor_Sample_Barcode
       data_maf_DNMT3A_2$DNMT3A_status = Data_maf_DNMT3A_2$DNMT3A_status
       data_maf_DNMT3A_2$Protein_Change = Data_maf_DNMT3A_2$unique_alt
-      maf.dset_2 <- data_maf_DNMT3A_2
+      maf.dset_2 <- as.data.frame(data_maf_DNMT3A_2)
       maf.dset_2 <- filterSNV(dataSet = maf.dset_2,
                             seq_colNames = c("Reference_Allele",
                                              "Tumor_Seq_Allele1",
@@ -18568,7 +19102,7 @@ server <- function(input, output, session) {
       data_maf_DNMT3A_3$Tumor_Sample_Barcode = Data_maf_DNMT3A_3$Tumor_Sample_Barcode
       data_maf_DNMT3A_3$DNMT3A_status = Data_maf_DNMT3A_3$DNMT3A_status
       data_maf_DNMT3A_3$Protein_Change = Data_maf_DNMT3A_3$unique_alt
-      maf.dset_3 <- data_maf_DNMT3A_3
+      maf.dset_3 <- as.data.frame(data_maf_DNMT3A_3)
       maf.dset_3 <- filterSNV(dataSet = maf.dset_3,
                               seq_colNames = c("Reference_Allele",
                                                "Tumor_Seq_Allele1",
@@ -18605,6 +19139,7 @@ server <- function(input, output, session) {
       # ocd.expos_DNMT3A_3 <- maf.counts.analysis_DNMT3A_3$Results$exposures
       # msig1_DNMT3A_3 <- matchSignatures(mutSign = ocd.signs_DNMT3A_3, reference = cosmixSigs,
       #                                   threshold = 0.45, plot = TRUE)
+      setProgress(detail = "19030")
       Data_MAF_DNMT3A = Data_MAF_target %>%
         dplyr::filter(non_germline_non_error <= 1) %>%
         dplyr::filter(unique_alt %in% CH_candidates &
@@ -19619,6 +20154,7 @@ server <- function(input, output, session) {
       colnames(mutation_status) = colname_tmp
       top10_genes[top10_genes == "R771*"] = "R771Ter"
       gene_freq[gene_freq == "R771*"] = "R771Ter"
+      setProgress(detail = "20045")
       # 症例データと結合（Smoking, Alcohol, Treatment情報を含む）
       Data_taxane_pre = Data_case() %>%
         dplyr::filter(症例.検体情報.パネル.名称. == "F1Liquid CDx") %>%
@@ -20388,6 +20924,7 @@ server <- function(input, output, session) {
       data_maf_ACC$Age = mutation_data$Age
       data_maf_ACC$pnt_col = mutation_data$pnt_col
       hg38 <- BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+      data_maf_ACC = as.data.frame(data_maf_ACC)
       maf_ACC <- filterSNV(dataSet = data_maf_ACC,
                               seq_colNames = c("Reference_Allele",
                                                "Tumor_Seq_Allele1",
@@ -20796,6 +21333,7 @@ server <- function(input, output, session) {
                            breaks = c(0,2,4),
                            labels = c("0","2","4~")) +
         geom_text_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 45) #+
+      setProgress(detail = "21223")
       plots[[111]] = g
       mutation_data = Data_MAF_target %>%
         dplyr::filter(non_germline_non_error <= 1) %>%
@@ -21573,6 +22111,7 @@ server <- function(input, output, session) {
       # グループ順を CH(-), LOCH, ANY に固定
       TMB_data <- TMB_data %>%
         mutate(group = factor(group, levels = c("CH(-)", "LOCH", "ANY")))
+      setProgress(detail = "22001")
       
       # y 軸テキスト位置
       label_y <- max(TMB_data$TMB, na.rm = TRUE) * 1.2
@@ -22382,6 +22921,7 @@ server <- function(input, output, session) {
       plots[[222]] = g1
       plots[[223]] = g2
       plots[[229]] = g3
+      setProgress(detail = "22811")
       # 1. 各患者ごとに DNMT3A の変異数をカウント
       dnmt3a_counts <- Data_tmp %>%
         filter(Hugo_Symbol == "ASXL1") %>%
@@ -22809,6 +23349,7 @@ server <- function(input, output, session) {
           legend.title = element_text(size = 13),
           legend.text  = element_text(size = 11)
         )
+      setProgress(detail = "23239")
       plots[[237]] = g1
       plots[[238]] = g2
       plots[[239]] = g3
@@ -23311,6 +23852,7 @@ server <- function(input, output, session) {
       data_maf_ACC$pnt_col = mutation_data$pnt_col
       #hg19 <- BSgenome.Hsapiens.UCSC.hg19::BSgenome.Hsapiens.UCSC.hg19
       #hg38 <- BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+      data_maf_ACC = as.data.frame(data_maf_ACC)
       maf_ACC <- filterSNV(dataSet = data_maf_ACC,
                            seq_colNames = c("Reference_Allele",
                                             "Tumor_Seq_Allele1",
@@ -23581,6 +24123,8 @@ server <- function(input, output, session) {
       data_maf_ACC$pnt_col = mutation_data$pnt_col
       #hg19 <- BSgenome.Hsapiens.UCSC.hg19::BSgenome.Hsapiens.UCSC.hg19
       #hg38 <- BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+      setProgress(detail = "24012")
+      data_maf_ACC = as.data.frame(data_maf_ACC)
       maf_ACC <- filterSNV(dataSet = data_maf_ACC,
                            seq_colNames = c("Reference_Allele",
                                             "Tumor_Seq_Allele1",
@@ -23858,28 +24402,41 @@ server <- function(input, output, session) {
                       ranges = IRanges(start = Data_GENIE_solid$Start_Position, end = Data_GENIE_solid$End_Position),
                       strand = "*")
         chain <- import.chain(chain_file)
-        lifted_gr <- liftOver(gr, chain)
-        lifted_gr <- unlist(lifted_gr)
-        tmp = lifted_gr@partitioning@end
-        tmp0 = diff(tmp)
-        table_correction = data.frame(tmp0)
-        table_correction$count = 0
-        k = 1
-        for(i in 1:length(tmp0)){
-          if(tmp0[i] == 1){
-            k = k + 1
-          } else if(tmp0[i] == 0){
-            Data_GENIE_solid = Data_GENIE_solid[-k,]
-          } else if(tmp0[i] == 2){
-            lifted_gr = lifted_gr[-(k + 1),]
-            k = k + 1
-          } else if(tmp0[i] == 4){
-            lifted_gr = lifted_gr[-(k + 1),]
-            lifted_gr = lifted_gr[-(k + 1),]
-            lifted_gr = lifted_gr[-(k + 1),]
-            k = k + 1
-          }
-        }
+        # lifted_gr <- liftOver(gr, chain)
+        # lifted_gr <- unlist(lifted_gr)
+        # tmp = lifted_gr@partitioning@end
+        # tmp0 = diff(tmp)
+        # table_correction = data.frame(tmp0)
+        # table_correction$count = 0
+        # k = 1
+        # for(i in 1:length(tmp0)){
+        #   if(tmp0[i] == 1){
+        #     k = k + 1
+        #   } else if(tmp0[i] == 0){
+        #     Data_GENIE_solid = Data_GENIE_solid[-k,]
+        #   } else if(tmp0[i] == 2){
+        #     lifted_gr = lifted_gr[-(k + 1),]
+        #     k = k + 1
+        #   } else if(tmp0[i] == 4){
+        #     lifted_gr = lifted_gr[-(k + 1),]
+        #     lifted_gr = lifted_gr[-(k + 1),]
+        #     lifted_gr = lifted_gr[-(k + 1),]
+        #     k = k + 1
+        #   }
+        # }
+        lifted_list <- liftOver(gr, chain)          # GRangesList
+        nmap <- elementNROWS(lifted_list)           # 各入力が何件に変換されたか
+        
+        # 0件（liftOverできない）を落とす
+        keep <- which(nmap >= 1)
+        Data_GENIE_solid <- Data_GENIE_solid[keep, , drop = FALSE]
+        lifted_list <- lifted_list[keep]
+        
+        # 複数件は「最初の1件だけ採用」
+        lifted_1 <- endoapply(lifted_list, function(x) x[1])
+        
+        # 1:1にGRangesへ
+        lifted_gr <- unlist(lifted_1, use.names = FALSE)
         Data_GENIE_solid$Chromosome <- as.character(seqnames(lifted_gr))
         Data_GENIE_solid$Start_Position <- start(lifted_gr)
         Data_GENIE_solid$End_Position <- end(lifted_gr)
@@ -24219,6 +24776,7 @@ server <- function(input, output, session) {
         dplyr::filter(!str_detect(amino.acid.change, "_")) %>%
         dplyr::filter(!str_detect(amino.acid.change, "^\\*")) %>%
         dplyr::filter(Hugo_Symbol == lolliplot_gene) 
+      setProgress(detail = "24651")
       if(length(data_lolliplot$Chromosome) == 0){
         plots[[126]] = gg_empty()
       } else {
@@ -24802,6 +25360,25 @@ server <- function(input, output, session) {
                ylim = c(0, 0.20))
       plot_obj <- recordPlot()
       plots[[142]] = ggdraw(plot_obj)
+      setProgress(detail = "25235")
+      # 集計値
+      other_total <- 8200
+      other_actc  <- 897
+      y735c_total <- 152
+      y735c_actc  <- 28
+      rate_other <- other_actc / other_total
+      rate_y735c <- y735c_actc  / y735c_total
+      RR <- rate_y735c / rate_other
+      rate_other
+      rate_y735c
+      RR
+      # exactな率比の検定（2群の発生率比較）
+      pt <- poisson.test(
+        x = c(y735c_actc, other_actc),
+        T = c(y735c_total, other_total),
+        r = 1
+      )
+      pt
       msigPlot(maf.counts_DNMT3A_3,
                sample = "other",
                main = paste0("C-CAT patients without DNMT3A Y735C mut, ",
@@ -25427,6 +26004,7 @@ server <- function(input, output, session) {
                            labels = c("0","2","4~")) +
         geom_text_repel(aes(label = aelabel), size = 3,vjust = 0.14, max.overlaps = 45) #+
       plots[[161]] = g
+      setProgress(detail = "25879")
       mutation_data = 
         data.frame(Data_GENIE %>%
                       filter(Sample_type == "Blood_cancer" &
@@ -25806,6 +26384,7 @@ server <- function(input, output, session) {
                     #   logfold >= -log2(1) & logfold < log2(2),"C",
                     "B"))#))
         )
+      setProgress(detail = "26259")
       g = ggplot(data_tmp,
                  aes(x=logfold, y=logpval, label = aelabel)) +
         geom_point() +
@@ -26087,6 +26666,78 @@ server <- function(input, output, session) {
                           "(e) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne CDx test."))
       layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
       ggsave("source/figure_1_all_genes.pdf", plot = layout_with_legend, width = 18, height = 18)
+      design <- "
+      AAACCC
+      BBDDEE
+      "
+      # レイアウトに図を配置
+      layout <- plots[[1]] + plots[[119]] + plots[[369]] + plots[[14]] + plots[[178]] + 
+        plot_layout(design = design) +
+        plot_annotation(tag_levels = 'a', 
+                        caption = paste0(
+                          "Figure 1. Overview of CH-related hotspots. \n",
+                          "(a) Histogram of frequencies by tissue type for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(b) A volcano plot was generated to illustrate which hotspot mutations were more frequently detected in either \n",
+                          "the FoundationOne CDx (solid tumor panel) or the FoundationOne Liquid CDx. \n",
+                          "The x-axis represents the log2 odds ratio of detection frequency, \n",
+                          "while the y-axis represents the -log10 P-value. \n",
+                          "Mutations were color-coded based on their type, \n",
+                          "and the shape was differentiated depending on whether the mutation belonged to one of the \n",
+                          "four major CH-related gene categories; epigenetic regulators (DNMT3A, TET2, ASXL1, IDH2), DNA repair genes \n",
+                          "(TP53, CHEK2, ATM, RAD21, MDM4), MAPK (PTPN11, KRAS, CBL), and splicing factors (SF3B1, U2AF1). \n",
+                          "(c) Histogram showing the number of CH-related hotspot variants detected per patient. \n",
+                          "(d) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(e) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne CDx test."))
+      layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+      ggsave("source/figure_1_non_CH_genes.pdf", plot = layout_with_legend, width = 18, height = 18)
+      design <- "
+      AAACCC
+      BBDDEE
+      "
+      # レイアウトに図を配置
+      layout <- plots[[1]] + plots[[119]] + plots[[368]] + plots[[14]] + plots[[178]] + 
+        plot_layout(design = design) +
+        plot_annotation(tag_levels = 'a', 
+                        caption = paste0(
+                          "Figure 1. Overview of CH-related hotspots. \n",
+                          "(a) Histogram of frequencies by tissue type for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(b) A volcano plot was generated to illustrate which hotspot mutations were more frequently detected in either \n",
+                          "the FoundationOne CDx (solid tumor panel) or the FoundationOne Liquid CDx. \n",
+                          "The x-axis represents the log2 odds ratio of detection frequency, \n",
+                          "while the y-axis represents the -log10 P-value. \n",
+                          "Mutations were color-coded based on their type, \n",
+                          "and the shape was differentiated depending on whether the mutation belonged to one of the \n",
+                          "four major CH-related gene categories; epigenetic regulators (DNMT3A, TET2, ASXL1, IDH2), DNA repair genes \n",
+                          "(TP53, CHEK2, ATM, RAD21, MDM4), MAPK (PTPN11, KRAS, CBL), and splicing factors (SF3B1, U2AF1). \n",
+                          "(c) Histogram showing the number of CH-related hotspot variants detected per patient. \n",
+                          "(d) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(e) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne CDx test."))
+      layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+      ggsave("source/figure_1_non_all_CH_genes.pdf", plot = layout_with_legend, width = 18, height = 18)
+      design <- "
+      AAACCC
+      BBDDEE
+      "
+      # レイアウトに図を配置
+      layout <- plots[[1]] + plots[[119]] + plots[[370]] + plots[[14]] + plots[[178]] + 
+        plot_layout(design = design) +
+        plot_annotation(tag_levels = 'a', 
+                        caption = paste0(
+                          "Figure 1. Overview of CH-related hotspots. \n",
+                          "(a) Histogram of frequencies by tissue type for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(b) A volcano plot was generated to illustrate which hotspot mutations were more frequently detected in either \n",
+                          "the FoundationOne CDx (solid tumor panel) or the FoundationOne Liquid CDx. \n",
+                          "The x-axis represents the log2 odds ratio of detection frequency, \n",
+                          "while the y-axis represents the -log10 P-value. \n",
+                          "Mutations were color-coded based on their type, \n",
+                          "and the shape was differentiated depending on whether the mutation belonged to one of the \n",
+                          "four major CH-related gene categories; epigenetic regulators (DNMT3A, TET2, ASXL1, IDH2), DNA repair genes \n",
+                          "(TP53, CHEK2, ATM, RAD21, MDM4), MAPK (PTPN11, KRAS, CBL), and splicing factors (SF3B1, U2AF1). \n",
+                          "(c) Histogram showing the number of CH-related hotspot variants detected per patient. \n",
+                          "(d) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne Liquid CDx test. \n",
+                          "(e) Heatmap of hotspot mutation frequencies across tissue types and CH-related genes for patients who underwent the FoundationOne CDx test."))
+      layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+      ggsave("source/figure_1_CH_genes_in_all_genes.pdf", plot = layout_with_legend, width = 18, height = 18)
       design <- "
       AAABBB
       CCDDEE
@@ -26640,6 +27291,34 @@ server <- function(input, output, session) {
                         ))
       layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
       ggsave("source/figure_6_new.pdf", plot = layout_with_legend, width = 8, height = 12)
+      design <- "
+      A
+      "
+      # レイアウトに図を配置
+      layout <- plots[[371]] + 
+        plot_layout(design = design) +
+        plot_annotation(tag_levels = 'a', 
+                        caption = paste0(
+                          "Figure 6. ICI (Nivo/Pembro) effect and TICH in F1-solid data. \n",
+                          "(a) TICH in any genes and time on treatment with ICI, TMB-low. \n",
+                          "TICH, Tumor-infiltrating CH, TOCH, Tumor-observed CH, LOCH, Liquid-only CH."
+                        ))
+      layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+      ggsave("source/figure_6_new_1.pdf", plot = layout_with_legend, width = 8, height = 12)
+      design <- "
+      A
+      "
+      # レイアウトに図を配置
+      layout <- plots[[372]] + 
+        plot_layout(design = design) +
+        plot_annotation(tag_levels = 'a', 
+                        caption = paste0(
+                          "Figure 6. ICI (Nivo/Pembro) effect and TICH in F1-solid data. \n",
+                          "(a) TICH in any genes and time on treatment with ICI, TMB-high. \n",
+                          "TICH, Tumor-infiltrating CH, TOCH, Tumor-observed CH, LOCH, Liquid-only CH."
+                        ))
+      layout_with_legend <- layout + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+      ggsave("source/figure_6_new_2.pdf", plot = layout_with_legend, width = 8, height = 12)
       design <- "
       A
       "

@@ -1,0 +1,46 @@
+# RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.RDataTmp
+.Ruserdata
+bastet.Rproj
+source/GENIE_variants.txtsource/GENIE_solid.tsv
+source/AACR_GENIE.csv
+source/GENIE_blood.tsv
+source/GENIE_ALL.csv
+source/id_map.csv
+source/TOCHLOCH_individual_variants.csv
+source/Table*
+source/hotspot_maf_file.tsv
+source/hg19ToHg38.over.chain
+source/hotspot_variants_somatic_or_CH.csv
+source/tmb_mskcc_2018_clinical_data.tsv
+source/table-*
+source/genie_F1L.csv
+
+
+# Mac
+.DS_Store
+
+# Zips (build artifacts / releases)
+*.zip
+
+# Office / slides (large binaries)
+*.pptx
+*.ppt
+*.docx
+*.xlsx
+*.rda
+*.pdf
+
+
+# Old / archive
+old_version/
+source/NatGen
+# Local scratch / temp
+tmp/
+cache/
+
+GENIE/*.tsv
+NatGen/*.tsv
