@@ -24129,16 +24129,19 @@ server <- function(input, output, session) {
                            seq_colNames = c("Reference_Allele",
                                             "Tumor_Seq_Allele1",
                                             "Tumor_Seq_Allele2"))
+      setProgress(detail = "24132")
       maf_ACC <- attachContext(mutData = maf_ACC,
                                chr_colName = "Chromosome",
                                start_colName = "Start_Position",
                                end_colName = "End_Position",
                                nucl_contextN = 3,
                                BSGenomeDb = hg38)
+      setProgress(detail = "24139")
       maf_ACC <- removeMismatchMut(mutData = maf_ACC,
                                    refMut_colName = "Reference_Allele",
                                    context_colName = "context",
                                    refMut_format = "N")
+      setProgress(detail = "24144")
       mutation_data_signature <- attachMutType(mutData = maf_ACC,
                                                ref_colName = "Reference_Allele",
                                                var_colName = "Tumor_Seq_Allele1",
@@ -24174,6 +24177,7 @@ server <- function(input, output, session) {
         dplyr::mutate(favor_liquid = case_when(
           Tumor_Sample_Barcode %in% ID_ACC ~ 1,
           TRUE ~ 0))
+      setProgress(detail = "24180")
       if(file.exists("source/volcano_CCAT_ACC.rda")){
         load("source/volcano_CCAT_ACC.rda")
       } else{
@@ -24206,6 +24210,7 @@ server <- function(input, output, session) {
         }
         save(data_tmp, file = "source/volcano_CCAT_ACC.rda")
       }
+      setProgress(detail = "24213")
       data_tmp$odds_ratio_adj = data_tmp$odds_ratio
       # data_tmp$p_value_adj = data_tmp$p_value
       data_tmp$p_value_adj = p.adjust(data_tmp$p_value, method= 'none')
@@ -24264,6 +24269,7 @@ server <- function(input, output, session) {
       #theme(legend.position = "none")
       table_CCAT_ACC = data_tmp
       plots[[122]] = g      
+      setProgress(detail = "24272")
       data_tmp = Data_MAF_target %>%
         dplyr::filter(Panel == "F1Liquid CDx" &
                         non_germline_non_error == 1 &
@@ -24336,6 +24342,7 @@ server <- function(input, output, session) {
       threshold_P = 0.01
       threshold_P_TP53 = 0.01
       threshold_P_OTHER = 0.01
+      setProgress(detail = "24345")
       data_tmp <- data_tmp %>%
         mutate( logpval = -log10(p_value_adj),
                 logfold = log2(odds_ratio_adj) ,
@@ -24382,12 +24389,14 @@ server <- function(input, output, session) {
       table_CCAT_CCT = data_tmp
       plots[[123]] = g    
       print(10)
+      setProgress(detail = "24392")
       Summary_GENIE_solid = read_csv("source/GENIE_ALL.csv", show_col_types = FALSE) %>%
         filter(Sample_type != "Blood_cancer")
       ID_Solid_cancer = unique(Summary_GENIE_solid$Tumor_Sample_Barcode)
       if (!file.exists("source/GENIE_solid.tsv")) {
         library(rtracklayer)
         library(GenomicRanges)
+        setProgress(detail = "24399")
         Data_GENIE_solid = read_tsv("source/GENIE_variants.txt", show_col_types = FALSE)
         Data_GENIE_solid = Data_GENIE_solid %>% dplyr::filter(Tumor_Sample_Barcode %in% ID_Solid_cancer)
         Data_GENIE_solid$Chromosome = paste0("chr", Data_GENIE_solid$Chromosome)
@@ -24505,6 +24514,7 @@ server <- function(input, output, session) {
       } else{
         data_lolliplot$Variant_Classification = "Missense_Mutation"
       }
+      setProgress(detail = "24517")
       data_lolliplot = data_lolliplot %>%
         dplyr::filter(!str_detect(amino.acid.change, "c.")) %>%
         dplyr::filter(!str_detect(amino.acid.change, "_")) %>%
@@ -24536,6 +24546,7 @@ server <- function(input, output, session) {
                           size=ifelse(var.plot$freq>=input$lolliplot_no*0.5,4,2),
                           fontface="bold", max.overlaps=Inf) +
           theme_classic()
+        setProgress(detail = "24549")
         proteins_acc<-read.table(file("source/UniProt.txt",
                                       encoding='UTF-8-BOM'),header=T)
         if(length(proteins_acc[proteins_acc$Hugo_Symbol==lolliplot_gene,2]) == 1){
