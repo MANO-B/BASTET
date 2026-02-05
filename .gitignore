@@ -38,9 +38,10 @@ source/genie_F1L.csv
 # Old / archive
 old_version/
 source/NatGen
+source/GENIE
 # Local scratch / temp
 tmp/
 cache/
 
-GENIE/*.tsv
-NatGen/*.tsv
+source/GENIE/*.tsv
+source/NatGen/*.tsv
