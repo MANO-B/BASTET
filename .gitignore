@@ -18,7 +18,7 @@ source/hotspot_variants_somatic_or_CH.csv
 source/tmb_mskcc_2018_clinical_data.tsv
 source/table-*
 source/genie_F1L.csv
-
+source/**
 
 # Mac
 .DS_Store
